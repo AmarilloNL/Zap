@@ -326,7 +326,7 @@
                                 <TextBlock x:Name="CurrentText" Foreground="{StaticResource MutedBrush}" FontSize="12.5" Margin="0,6,0,0"
                                            TextTrimming="CharacterEllipsis" />
                                 <UniformGrid Columns="2" Margin="0,18,-10,0">
-                                    <HeaderedContentControl Style="{StaticResource MetricCell}" Header="SPEED" Padding="0,0,10,10">
+                                    <HeaderedContentControl x:Name="SpeedCell" Style="{StaticResource MetricCell}" Header="SPEED" Padding="0,0,10,10">
                                         <TextBlock x:Name="SpeedText" />
                                     </HeaderedContentControl>
                                     <HeaderedContentControl x:Name="TimeCell" Style="{StaticResource MetricCell}" Header="TIME LEFT" Padding="0,0,10,10">

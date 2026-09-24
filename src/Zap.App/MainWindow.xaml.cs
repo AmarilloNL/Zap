@@ -287,6 +287,7 @@ public partial class MainWindow : Window
         Ring.Progress = 0;
         SpeedText.Text = TimeText.Text = FilesText.Text = BytesText.Text = "—";
         TimeCell.Header = "TIME LEFT";
+        SpeedCell.Header = "SPEED";
         Graph.Clear();
         Graph.Visibility = Visibility.Visible;
         ErrorsPanel.Visibility = Visibility.Collapsed;
@@ -319,6 +320,7 @@ public partial class MainWindow : Window
         JobEyebrow.Content = RingSub.Text = _jobEyebrow;
         JobHeadline.Text = _jobHeadline;
         TimeCell.Header = "TIME LEFT";
+        SpeedCell.Header = p.Parallelism == 1 ? "SPEED · HDD MODE" : "SPEED";
         // Big files are bound by bytes, piles of small files by file count: weigh both.
         double byBytes = p.TotalBytes > 0 ? (double)p.BytesDone / p.TotalBytes : 1;
         double byFiles = (double)p.FilesDone / Math.Max(1, p.TotalFiles);
