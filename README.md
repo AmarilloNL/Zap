@@ -1,6 +1,6 @@
 # Zap
 
-Fast copy and delete for Windows, with live progress.
+Fast copy, move and delete for Windows, with live progress.
 
 - **Copy**: add files/folders (or drop them), pick a destination, choose what happens with existing files, Start copy.
 - **Move**: like Copy, but instant on the same drive (folders are renamed or merged); across drives it copies, then removes the originals.
