@@ -30,6 +30,7 @@ public static class Copier
         }
 
         progress.SetTotals(jobs.Count, jobs.Sum(j => j.File.Size));
+        progress.Parallelism = UsesHardDisk(sources, destination) ? 1 : Parallelism;
         ct.ThrowIfCancellationRequested();
         Directory.CreateDirectory(destination);
         foreach (var dir in dirs)
@@ -38,10 +39,22 @@ public static class Copier
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { progress.AddError(dir, ex.Message); }
         }
 
-        bool hardDisk = sources.Any(DriveKind.IsHardDisk) || DriveKind.IsHardDisk(destination);
-        progress.Parallelism = hardDisk ? 1 : Parallelism;
         Parallel.ForEach(jobs, new ParallelOptions { MaxDegreeOfParallelism = progress.Parallelism, CancellationToken = ct },
             job => CopyOne(job.File, job.Target, mode, progress, ct));
+    }
+
+    internal static bool UsesHardDisk(IEnumerable<string> sources, string destination) =>
+        sources.Any(DriveKind.IsHardDisk) || DriveKind.IsHardDisk(destination);
+
+    /// <summary>Same size and last-write time (within FAT's 2 s resolution).</summary>
+    internal static bool IsIdentical(FileInfo existing, long size, DateTime lastWriteUtc) =>
+        existing.Length == size && (existing.LastWriteTimeUtc - lastWriteUtc).Duration() <= TimeTolerance;
+
+    /// <summary>Windows refuses to overwrite read-only or hidden files.</summary>
+    internal static void ClearBlockingAttributes(FileInfo existing)
+    {
+        const FileAttributes blocking = FileAttributes.ReadOnly | FileAttributes.Hidden;
+        if ((existing.Attributes & blocking) != 0) existing.Attributes &= ~blocking;
     }
 
     static void CopyOne(ScannedFile file, string target, OverwriteMode mode, JobProgress progress, CancellationToken ct)
@@ -57,11 +70,10 @@ public static class Copier
                 {
                     OverwriteMode.Never => true,
                     OverwriteMode.Always => false,
-                    _ => existing.Length == file.Size && (existing.LastWriteTimeUtc - file.LastWriteUtc).Duration() <= TimeTolerance,
+                    _ => IsIdentical(existing, file.Size, file.LastWriteUtc),
                 };
                 if (skip) { progress.FileSkipped(file.Size); return; }
-                const FileAttributes blocking = FileAttributes.ReadOnly | FileAttributes.Hidden;
-                if ((existing.Attributes & blocking) != 0) existing.Attributes &= ~blocking;
+                ClearBlockingAttributes(existing);
             }
 
             NativeCopy.Copy(file.Path, target, transferred =>
