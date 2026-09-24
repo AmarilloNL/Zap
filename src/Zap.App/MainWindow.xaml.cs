@@ -207,7 +207,7 @@ public partial class MainWindow : Window
 
         var p = new JobProgress();
         ScanResult? scan = null;
-        if (await RunJob(p, "SCANNING", "Counting what will be deleted…", ct => scan = Scanner.Scan(items, p, ct)) is null || scan is null)
+        if (await RunJob(p, "SCANNING", "Scanning files before deleting…", ct => scan = Scanner.Scan(items, p, ct)) is null || scan is null)
             return;
 
         var dialog = new DeleteConfirmDialog(
@@ -308,7 +308,7 @@ public partial class MainWindow : Window
             if (cancellable) // counting files before the real work starts
             {
                 JobEyebrow.Content = RingSub.Text = "SCANNING";
-                JobHeadline.Text = "Counting files…";
+                JobHeadline.Text = DeleteModeOn ? "Scanning files before deleting…" : "Scanning files before copying…";
                 FilesText.Text = $"{Format.Count(p.ScannedFiles)} found";
                 BytesText.Text = $"{Format.Bytes(p.ScannedBytes)} found";
             }
