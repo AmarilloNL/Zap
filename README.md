@@ -10,3 +10,6 @@ Requires the .NET 10 Desktop Runtime.
 
 Build: `dotnet publish src/Zap.App -c Release -o publish` → `publish\Zap.exe`
 Tests: `dotnet test`
+
+Command line: `Zap.exe <paths>` opens with those items in the Copy list, `Zap.exe --delete <paths>` in the Delete list
+(handy for a "Send to" shortcut).

@@ -1,56 +1,166 @@
+using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Interop;
+using System.Windows.Media;
+using System.Windows.Media.Animation;
+using System.Windows.Media.Effects;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using Zap.Engine;
 
 namespace Zap.App;
 
+public sealed record PathItem(string Path)
+{
+    public string Name => System.IO.Path.GetFileName(Path) is { Length: > 0 } n ? n : Path;
+    public string Parent => System.IO.Path.GetDirectoryName(Path) ?? "";
+    public string Glyph => Directory.Exists(Path) ? "" : "";
+}
+
 public partial class MainWindow : Window
 {
-    CancellationTokenSource? _cts;
+    static readonly (Color A, Color B) CopyAccent = (Rgb(0x22D3EE), Rgb(0x8B5CF6));
+    static readonly (Color A, Color B) DeleteAccent = (Rgb(0xF472B6), Rgb(0xEF4444));
+    static readonly Color Emerald = Rgb(0x34D399), Amber = Rgb(0xFBBF24), Neutral = Rgb(0xAEB9CA);
 
-    public MainWindow() => InitializeComponent();
+    enum Outcome { Success, Cancelled, Failed }
+
+    readonly ObservableCollection<PathItem> _copyItems = [], _deleteItems = [];
+    readonly Effect _ringGlow;
+    CancellationTokenSource? _cts;
+    bool _spinning;
+
+    public MainWindow(IEnumerable<string> startupPaths)
+    {
+        InitializeComponent();
+        _ringGlow = Ring.Effect;
+        _copyItems.CollectionChanged += (_, _) => UpdateItemsState();
+        _deleteItems.CollectionChanged += (_, _) => UpdateItemsState();
+        // "Zap.exe <paths>" pre-fills the copy list, "Zap.exe --delete <paths>" the delete list.
+        var args = startupPaths.ToList();
+        bool deleteArgs = args.FirstOrDefault() == "--delete";
+        foreach (var p in args.Skip(deleteArgs ? 1 : 0)) AddPath(deleteArgs ? _deleteItems : _copyItems, p);
+        (deleteArgs ? DeleteMode : CopyMode).IsChecked = true; // triggers ApplyMode
+
+        SourceInitialized += (_, _) => UseWin11Frame();
+        StateChanged += (_, _) =>
+        {
+            bool max = WindowState == WindowState.Maximized;
+            Root.Margin = new Thickness(max ? 7 : 0); // WindowChrome overhangs the screen when maximized
+            MaxButton.Content = max ? "" : "";
+        };
+    }
+
+    bool DeleteModeOn => DeleteMode.IsChecked == true;
+    ObservableCollection<PathItem> Items => DeleteModeOn ? _deleteItems : _copyItems;
+
+    // ---------- mode & accent ----------
+
+    void Mode_Checked(object sender, RoutedEventArgs e) => ApplyMode();
+
+    void ApplyMode()
+    {
+        bool del = DeleteModeOn;
+        SetAccent(del ? DeleteAccent : CopyAccent);
+        TitleText.Text = del ? "Delete files" : "Copy files";
+        SubtitleText.Foreground = (Brush)FindResource("MutedBrush");
+        SubtitleText.Text = del
+            ? "Parallel deleting, way faster than Explorer. You confirm before anything goes."
+            : "Parallel copying with live progress. Drop files or folders anywhere in the window.";
+        EmptyHint.Text = del ? "or pick what you want gone" : "or pick what you want to copy";
+        CopySide.Visibility = del ? Visibility.Collapsed : Visibility.Visible;
+        DeleteSide.Visibility = del ? Visibility.Visible : Visibility.Collapsed;
+        ItemsView.ItemsSource = Items;
+        UpdateItemsState();
+    }
+
+    void SetAccent((Color A, Color B) accent)
+    {
+        var (a, b) = accent;
+        Resources["Accent1"] = a;
+        Resources["AccentBrush"] = Frozen(new SolidColorBrush(a));
+        Resources["AccentSoft"] = Frozen(new SolidColorBrush(WithAlpha(a, 0x1F)));
+        Resources["AccentGradient"] = Frozen(new LinearGradientBrush(a, b, new Point(0, 0), new Point(1, 1)));
+        Resources["AccentFade"] = Frozen(new LinearGradientBrush(WithAlpha(a, 0x59), WithAlpha(a, 0), 90));
+        Resources["BlobABrush"] = Frozen(new RadialGradientBrush(WithAlpha(a, 0x4D), WithAlpha(a, 0)));
+    }
+
+    void ShowHint(string message)
+    {
+        SubtitleText.Foreground = new SolidColorBrush(Amber);
+        SubtitleText.Text = message;
+    }
 
     // ---------- picking items ----------
 
-    static void AddItems(ListBox list, IEnumerable<string> paths)
+    static void AddPath(ObservableCollection<PathItem> list, string path)
     {
-        foreach (var p in paths)
-            if (!list.Items.Contains(p)) list.Items.Add(p);
+        if (!Path.Exists(path)) return;
+        path = PathUtil.Normalize(path);
+        if (!list.Any(i => i.Path.Equals(path, StringComparison.OrdinalIgnoreCase))) list.Add(new PathItem(path));
+    }
+
+    void UpdateItemsState()
+    {
+        int n = Items.Count;
+        EmptyState.Visibility = n == 0 ? Visibility.Visible : Visibility.Collapsed;
+        ListState.Visibility = n == 0 ? Visibility.Collapsed : Visibility.Visible;
+        ItemsEyebrow.Content = n == 1 ? "1 ITEM" : $"{n} ITEMS";
+        SetDropHighlight(false);
     }
 
     void AddFiles_Click(object sender, RoutedEventArgs e)
     {
         var dlg = new OpenFileDialog { Multiselect = true };
-        if (dlg.ShowDialog(this) == true) AddItems((ListBox)((Button)sender).Tag, dlg.FileNames);
+        if (dlg.ShowDialog(this) == true) foreach (var f in dlg.FileNames) AddPath(Items, f);
     }
 
     void AddFolder_Click(object sender, RoutedEventArgs e)
     {
         var dlg = new OpenFolderDialog { Multiselect = true };
-        if (dlg.ShowDialog(this) == true) AddItems((ListBox)((Button)sender).Tag, dlg.FolderNames);
+        if (dlg.ShowDialog(this) == true) foreach (var f in dlg.FolderNames) AddPath(Items, f);
     }
 
-    void Remove_Click(object sender, RoutedEventArgs e)
+    void RemoveItem_Click(object sender, RoutedEventArgs e) => Items.Remove((PathItem)((Button)sender).Tag);
+    void Clear_Click(object sender, RoutedEventArgs e) => Items.Clear();
+
+    void SetDropHighlight(bool on)
     {
-        var list = (ListBox)((Button)sender).Tag;
-        foreach (var item in list.SelectedItems.Cast<object>().ToList()) list.Items.Remove(item);
+        DropOutline.Stroke = on ? (Brush)FindResource("AccentBrush") : (Brush)FindResource("LineBrightBrush");
+        DropOutline.Fill = on ? (Brush)FindResource("AccentSoft") : Brushes.Transparent;
+        DropOutline.Opacity = on || Items.Count == 0 ? 1 : 0;
     }
 
-    void Clear_Click(object sender, RoutedEventArgs e) => ((ListBox)((Button)sender).Tag).Items.Clear();
-
-    void Drop_DragOver(object sender, DragEventArgs e)
+    void Window_DragOver(object sender, DragEventArgs e)
     {
-        e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy : DragDropEffects.None;
+        bool ok = e.Data.GetDataPresent(DataFormats.FileDrop) && IdleView.Visibility == Visibility.Visible;
+        e.Effects = ok ? DragDropEffects.Copy : DragDropEffects.None;
+        SetDropHighlight(ok);
         e.Handled = true;
     }
 
-    void List_Drop(object sender, DragEventArgs e)
+    void Window_DragLeave(object sender, DragEventArgs e)
     {
-        if (e.Data.GetData(DataFormats.FileDrop) is string[] paths) AddItems((ListBox)sender, paths);
+        // DragLeave also fires when moving between child elements; only react when the pointer left the window.
+        var pos = e.GetPosition(this);
+        if (pos.X <= 0 || pos.Y <= 0 || pos.X >= ActualWidth || pos.Y >= ActualHeight) SetDropHighlight(false);
+    }
+
+    void Window_Drop(object sender, DragEventArgs e)
+    {
+        if (IdleView.Visibility == Visibility.Visible && e.Data.GetData(DataFormats.FileDrop) is string[] paths)
+            foreach (var p in paths) AddPath(Items, p);
+        SetDropHighlight(false);
+    }
+
+    void Dest_DragOver(object sender, DragEventArgs e)
+    {
+        e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy : DragDropEffects.None;
+        e.Handled = true;
     }
 
     void Dest_Drop(object sender, DragEventArgs e)
@@ -70,71 +180,73 @@ public partial class MainWindow : Window
 
     async void StartCopy_Click(object sender, RoutedEventArgs e)
     {
-        var sources = CopyList.Items.Cast<string>().ToList();
+        var sources = _copyItems.Select(i => i.Path).ToList();
         var dest = DestBox.Text.Trim();
-        if (sources.Count == 0 || dest == "") { StatusText.Text = "Add something to copy and pick a destination folder."; return; }
-        var mode = (OverwriteMode)OverwriteBox.SelectedIndex;
+        if (sources.Count == 0) { ShowHint("Add something to copy first."); return; }
+        if (dest == "") { ShowHint("Pick a destination folder first."); return; }
+        var mode = OverSkip.IsChecked == true ? OverwriteMode.SkipIdentical
+                 : OverAlways.IsChecked == true ? OverwriteMode.Always : OverwriteMode.Never;
 
         var p = new JobProgress();
-        var elapsed = await RunJob(p, ct => Copier.Run(sources, dest, mode, p, ct));
+        var elapsed = await RunJob(p, "COPYING", $"Copying to {(Path.GetFileName(PathUtil.Normalize(dest)) is { Length: > 0 } name ? name : dest)}", ct => Copier.Run(sources, dest, mode, p, ct));
         if (elapsed is { } t)
-            ShowSummary(p, $"Copied {Format.Count(p.FilesDone - p.FilesSkipped - p.FilesFailed)} files " +
-                           $"({Format.Bytes(p.BytesDone - p.BytesSkipped)}) in {Format.Time(t)}");
+            ShowDone(p, Outcome.Success, "COPY COMPLETE",
+                $"Copied {Format.Count(p.FilesDone - p.FilesSkipped - p.FilesFailed)} files " +
+                $"({Format.Bytes(p.BytesDone - p.BytesSkipped)}) in {Format.Time(t)}", t);
     }
 
     // ---------- delete ----------
 
     async void Delete_Click(object sender, RoutedEventArgs e)
     {
-        var items = DeleteList.Items.Cast<string>().ToList();
-        if (items.Count == 0) { StatusText.Text = "Add something to delete."; return; }
+        var items = _deleteItems.Select(i => i.Path).ToList();
+        if (items.Count == 0) { ShowHint("Add something to delete first."); return; }
         foreach (var item in items)
-            if (ProtectedPaths.Check(item) is { } reason)
-            {
-                MessageBox.Show(this, reason, "Zap won't delete this", MessageBoxButton.OK, MessageBoxImage.Stop);
-                return;
-            }
+            if (ProtectedPaths.Check(item) is { } reason) { ShowHint($"Zap won't delete this: {reason}"); return; }
 
         var p = new JobProgress();
         ScanResult? scan = null;
-        if (await RunJob(p, ct => scan = Scanner.Scan(items, p, ct)) is null || scan is null) return;
-        StatusText.Text = "Waiting for confirmation…";
+        if (await RunJob(p, "SCANNING", "Counting what will be deleted…", ct => scan = Scanner.Scan(items, p, ct)) is null || scan is null)
+            return;
 
         var dialog = new DeleteConfirmDialog(
-            $"Delete {Format.Count(scan.Files.Count)} files ({Format.Bytes(scan.TotalBytes)}) in {items.Count} item(s)?")
-            { Owner = this };
-        if (dialog.ShowDialog() != true) { StatusText.Text = "Delete cancelled."; return; }
+            $"Delete {Format.Count(scan.Files.Count)} files ({Format.Bytes(scan.TotalBytes)})?",
+            items.Count == 1 ? items[0] : $"From {items.Count} items") { Owner = this };
+        if (dialog.ShowDialog() != true) { ShowView(IdleView); return; }
 
         TimeSpan? elapsed;
         string verb;
         if (dialog.Choice == DeleteChoice.Permanent)
         {
-            elapsed = await RunJob(p, ct => Deleter.DeletePermanent(scan, p, ct));
+            elapsed = await RunJob(p, "DELETING", $"Deleting {Format.Count(scan.Files.Count)} files",
+                ct => Deleter.DeletePermanent(scan, p, ct));
             verb = "Deleted";
         }
         else
         {
-            elapsed = await RunJob(p, _ => Deleter.Recycle(items), cancellable: false);
-            verb = "Moved to Recycle Bin:";
+            elapsed = await RunJob(p, "RECYCLING", "Moving to the Recycle Bin…", _ => Deleter.Recycle(items), cancellable: false);
+            verb = "Recycled";
         }
 
-        foreach (var item in items.Where(i => !Path.Exists(i))) DeleteList.Items.Remove(item);
+        foreach (var gone in _deleteItems.Where(i => !Path.Exists(i.Path)).ToList()) _deleteItems.Remove(gone);
         if (elapsed is { } t)
-            ShowSummary(p, $"{verb} {Format.Count(scan.Files.Count - p.FilesFailed)} files ({Format.Bytes(scan.TotalBytes)}) in {Format.Time(t)}");
+            ShowDone(p, Outcome.Success, "DELETE COMPLETE",
+                $"{verb} {Format.Count(scan.Files.Count - p.FilesFailed)} files ({Format.Bytes(scan.TotalBytes)}) in {Format.Time(t)}", t);
     }
 
     // ---------- running jobs ----------
 
     /// <summary>Runs work in the background with live progress. Returns elapsed time, or null if cancelled/failed.</summary>
-    async Task<TimeSpan?> RunJob(JobProgress p, Action<CancellationToken> work, bool cancellable = true)
+    async Task<TimeSpan?> RunJob(JobProgress p, string eyebrow, string headline, Action<CancellationToken> work, bool cancellable = true)
     {
         _cts = new CancellationTokenSource();
-        SetBusy(true, cancellable);
-        ErrorsExpander.Visibility = Visibility.Collapsed;
+        ResetJobView(eyebrow, headline, cancellable);
+        ShowView(JobView);
+        ModeHost.IsEnabled = false;
         var clock = Stopwatch.StartNew();
-        var speed = new SpeedMeter();
+        SpeedMeter speed = new(), fileSpeed = new();
         var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
-        timer.Tick += (_, _) => ShowProgress(p, clock.Elapsed, speed, indeterminate: !cancellable);
+        timer.Tick += (_, _) => UpdateJob(p, clock.Elapsed, speed, fileSpeed, cancellable);
         timer.Start();
         try
         {
@@ -143,66 +255,184 @@ public partial class MainWindow : Window
         }
         catch (OperationCanceledException)
         {
-            ShowSummary(p, "Cancelled.");
+            ShowDone(p, Outcome.Cancelled, "CANCELLED", "Stopped before finishing.", clock.Elapsed);
             return null;
         }
         catch (Exception ex)
         {
-            ShowSummary(p, ex.Message);
+            ShowDone(p, Outcome.Failed, "COULDN'T FINISH", ex.Message, clock.Elapsed);
             return null;
         }
         finally
         {
             timer.Stop();
-            SetBusy(false, false);
+            ModeHost.IsEnabled = true;
         }
     }
 
-    void ShowProgress(JobProgress p, TimeSpan elapsed, SpeedMeter speed, bool indeterminate)
+    void ResetJobView(string eyebrow, string headline, bool cancellable)
+    {
+        JobEyebrow.Content = eyebrow;
+        JobHeadline.Text = headline;
+        CurrentText.Text = "";
+        RingText.Text = "0%";
+        RingText.Visibility = Visibility.Visible;
+        RingGlyph.Visibility = Visibility.Collapsed;
+        RingSub.Text = eyebrow;
+        Ring.SetResourceReference(ProgressRing.StrokeProperty, "AccentGradient");
+        Ring.Effect = _ringGlow;
+        Ring.BeginAnimation(ProgressRing.ProgressProperty, null);
+        Ring.Progress = 0;
+        SpeedText.Text = TimeText.Text = FilesText.Text = BytesText.Text = "—";
+        TimeCell.Header = "TIME LEFT";
+        Graph.Clear();
+        Graph.Visibility = Visibility.Visible;
+        ErrorsPanel.Visibility = Visibility.Collapsed;
+        CancelButton.Visibility = Visibility.Visible;
+        CancelButton.IsEnabled = cancellable;
+        DoneButton.Visibility = Visibility.Collapsed;
+    }
+
+    void UpdateJob(JobProgress p, TimeSpan elapsed, SpeedMeter speed, SpeedMeter fileSpeed, bool cancellable)
     {
         bool scanning = p.TotalFiles == 0 && p.FilesDone == 0;
-        Bar.IsIndeterminate = indeterminate || scanning;
-        if (indeterminate) // only Recycle Bin runs without progress
+        if (!cancellable || scanning) // no measurable progress yet
         {
-            StatusText.Text = "Moving to Recycle Bin…";
-            DetailText.Text = Format.Time(elapsed);
+            SetRingSpinning(true);
+            RingText.Text = "…";
+            CurrentText.Text = p.CurrentItem ?? "";
+            TimeCell.Header = "ELAPSED";
+            TimeText.Text = Format.Time(elapsed);
             return;
         }
-        if (scanning)
-        {
-            StatusText.Text = $"Scanning {p.CurrentItem}";
-            DetailText.Text = Format.Time(elapsed);
-            return;
-        }
-        Bar.Value = p.TotalBytes > 0 ? (double)p.BytesDone / p.TotalBytes : (double)p.FilesDone / Math.Max(1, p.TotalFiles);
-        StatusText.Text = p.CurrentItem ?? "";
+
+        SetRingSpinning(false);
+        TimeCell.Header = "TIME LEFT";
+        // Big files are bound by bytes, piles of small files by file count: weigh both.
+        double byBytes = p.TotalBytes > 0 ? (double)p.BytesDone / p.TotalBytes : 1;
+        double byFiles = (double)p.FilesDone / Math.Max(1, p.TotalFiles);
+        double fraction = (byBytes + byFiles) / 2;
+        Ring.BeginAnimation(ProgressRing.ProgressProperty, new DoubleAnimation(fraction, TimeSpan.FromMilliseconds(300)));
+        RingText.Text = $"{Math.Floor(fraction * 100):0}%";
+
         double rate = speed.Update(p.BytesDone - p.BytesSkipped, elapsed);
-        var left = rate > 0 ? $" · {Format.Time(TimeSpan.FromSeconds((p.TotalBytes - p.BytesDone) / rate))} left" : "";
-        DetailText.Text = $"{Format.Count(p.FilesDone)} / {Format.Count(p.TotalFiles)} files · " +
-                          $"{Format.Bytes(p.BytesDone)} / {Format.Bytes(p.TotalBytes)} · {Format.Bytes(rate)}/s{left}";
+        double fileRate = fileSpeed.Update(p.FilesDone, elapsed);
+        // Deleting is bound by file count, so GB/s would be meaningless there.
+        Graph.Add(DeleteModeOn ? fileRate : rate);
+        SpeedText.Text = DeleteModeOn ? $"{Format.Count((long)fileRate)} files/s" : $"{Format.Bytes(rate)}/s";
+        double secondsLeft = Math.Max(rate > 0 ? (p.TotalBytes - p.BytesDone) / rate : 0,
+                                      fileRate > 0 ? (p.TotalFiles - p.FilesDone) / fileRate : 0);
+        TimeText.Text = rate > 0 || fileRate > 0 ? Format.Time(TimeSpan.FromSeconds(secondsLeft)) : "—";
+        FilesText.Text = $"{Format.Count(p.FilesDone)} / {Format.Count(p.TotalFiles)}";
+        BytesText.Text = $"{Format.Bytes(p.BytesDone)} / {Format.Bytes(p.TotalBytes)}";
+        CurrentText.Text = p.CurrentItem ?? "";
     }
 
-    void ShowSummary(JobProgress p, string headline)
+    void ShowDone(JobProgress p, Outcome outcome, string eyebrow, string headline, TimeSpan elapsed)
     {
-        Bar.IsIndeterminate = false;
+        SetRingSpinning(false);
+        bool errors = p.Errors.Count > 0;
+        var (color, glyph, label) = outcome switch
+        {
+            Outcome.Success when !errors => (Emerald, "", "DONE"),
+            Outcome.Success => (Amber, "", "DONE WITH ERRORS"),
+            Outcome.Cancelled => (Neutral, "", "CANCELLED"),
+            _ => (Amber, "", "FAILED"),
+        };
+        var brush = Frozen(new SolidColorBrush(color));
+        Ring.BeginAnimation(ProgressRing.ProgressProperty, outcome == Outcome.Success
+            ? new DoubleAnimation(1, TimeSpan.FromMilliseconds(400)) : null);
+        Ring.Stroke = brush;
+        Ring.Effect = new DropShadowEffect { Color = color, BlurRadius = 40, ShadowDepth = 0, Opacity = 0.7 };
+        RingText.Visibility = Visibility.Collapsed;
+        RingGlyph.Text = glyph;
+        RingGlyph.Foreground = brush;
+        RingGlyph.Visibility = Visibility.Visible;
+        RingSub.Text = label;
+
+        JobEyebrow.Content = eyebrow;
+        JobHeadline.Text = headline;
         var extras = new List<string>();
-        if (p.FilesSkipped > 0) extras.Add($"{Format.Count(p.FilesSkipped)} skipped");
-        if (p.Errors.Count > 0) extras.Add($"{Format.Count(p.Errors.Count)} errors");
-        StatusText.Text = string.Join(" · ", [headline, .. extras]);
-        DetailText.Text = "";
-        ErrorList.ItemsSource = p.Errors.Select(err => $"{err.Path} — {err.Message}").ToList();
-        ErrorsExpander.Header = $"Errors ({p.Errors.Count})";
-        ErrorsExpander.Visibility = p.Errors.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-        ErrorsExpander.IsExpanded = p.Errors.Count > 0;
+        if (p.FilesSkipped > 0) extras.Add($"{Format.Count(p.FilesSkipped)} skipped (already identical)");
+        if (errors) extras.Add($"{Format.Count(p.Errors.Count)} errors");
+        CurrentText.Text = string.Join(" · ", extras);
+        if (elapsed.TotalSeconds > 0 && DeleteModeOn && p.FilesDone > 0)
+            SpeedText.Text = $"{Format.Count((long)(p.FilesDone / elapsed.TotalSeconds))} files/s avg";
+        else if (elapsed.TotalSeconds > 0 && p.BytesDone > p.BytesSkipped)
+            SpeedText.Text = $"{Format.Bytes((p.BytesDone - p.BytesSkipped) / elapsed.TotalSeconds)}/s avg";
+        TimeCell.Header = "TOOK";
+        TimeText.Text = Format.Time(elapsed);
+        if (p.TotalFiles > 0)
+        {
+            FilesText.Text = $"{Format.Count(p.FilesDone)} / {Format.Count(p.TotalFiles)}";
+            BytesText.Text = $"{Format.Bytes(p.BytesDone)} / {Format.Bytes(p.TotalBytes)}";
+        }
+
+        ErrorList.ItemsSource = p.Errors.ToList();
+        ErrorsEyebrow.Content = $"ERRORS ({p.Errors.Count})";
+        ErrorsPanel.Visibility = errors ? Visibility.Visible : Visibility.Collapsed;
+        Graph.Visibility = errors ? Visibility.Collapsed : Visibility.Visible;
+        CancelButton.Visibility = Visibility.Collapsed;
+        DoneButton.Visibility = Visibility.Visible;
     }
 
-    void SetBusy(bool busy, bool cancellable)
+    void SetRingSpinning(bool on)
     {
-        Tabs.IsEnabled = !busy;
-        CancelButton.IsEnabled = busy && cancellable;
+        if (on == _spinning) return;
+        _spinning = on;
+        var rotate = (RotateTransform)Ring.RenderTransform;
+        Ring.BeginAnimation(ProgressRing.ProgressProperty, null);
+        if (on)
+        {
+            Ring.Progress = 0.28;
+            rotate.BeginAnimation(RotateTransform.AngleProperty,
+                new DoubleAnimation(0, 360, TimeSpan.FromSeconds(1.1)) { RepeatBehavior = RepeatBehavior.Forever });
+        }
+        else
+        {
+            rotate.BeginAnimation(RotateTransform.AngleProperty, null);
+            rotate.Angle = 0;
+            Ring.Progress = 0;
+        }
+    }
+
+    void ShowView(FrameworkElement view)
+    {
+        var other = view == JobView ? IdleView : JobView;
+        other.Visibility = Visibility.Collapsed;
+        if (view.Visibility == Visibility.Visible) return;
+        view.Visibility = Visibility.Visible;
+        view.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(250)));
+        ((TranslateTransform)view.RenderTransform).BeginAnimation(TranslateTransform.YProperty,
+            new DoubleAnimation(14, 0, TimeSpan.FromMilliseconds(350)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
     }
 
     void Cancel_Click(object sender, RoutedEventArgs e) => _cts?.Cancel();
+    void Done_Click(object sender, RoutedEventArgs e) => ShowView(IdleView);
+
+    // ---------- window chrome ----------
+
+    void Minimize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
+    void Maximize_Click(object sender, RoutedEventArgs e) =>
+        WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+    void Close_Click(object sender, RoutedEventArgs e) => Close();
+
+    [DllImport("dwmapi.dll")]
+    static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+
+    void UseWin11Frame()
+    {
+        var hwnd = new WindowInteropHelper(this).Handle;
+        int dark = 1, round = 2; // DWMWA_USE_IMMERSIVE_DARK_MODE, DWMWA_WINDOW_CORNER_PREFERENCE = round
+        DwmSetWindowAttribute(hwnd, 20, ref dark, sizeof(int));
+        DwmSetWindowAttribute(hwnd, 33, ref round, sizeof(int));
+    }
+
+    // ---------- helpers ----------
+
+    static Color Rgb(int rgb) => Color.FromRgb((byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb);
+    static Color WithAlpha(Color c, byte a) => Color.FromArgb(a, c.R, c.G, c.B);
+    static T Frozen<T>(T f) where T : Freezable { f.Freeze(); return f; }
 
     /// <summary>Smoothed bytes/second.</summary>
     sealed class SpeedMeter
