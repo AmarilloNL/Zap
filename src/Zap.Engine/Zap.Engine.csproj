@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Microsoft.VisualBasic.FileIO (Recycle Bin) lives in the desktop framework -->
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App" />
+    <InternalsVisibleTo Include="Zap.Engine.Tests" />
+  </ItemGroup>
+</Project>
