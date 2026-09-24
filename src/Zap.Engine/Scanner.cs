@@ -40,7 +40,12 @@ public static class Scanner
             ct.ThrowIfCancellationRequested();
             var info = stack.Pop();
             if (IsLink(info)) { result.Links.Add(info.FullName); continue; }
-            if (info is FileInfo f) { result.Files.Add(new ScannedFile(f.FullName, f.Length, f.LastWriteTimeUtc)); continue; }
+            if (info is FileInfo f)
+            {
+                result.Files.Add(new ScannedFile(f.FullName, f.Length, f.LastWriteTimeUtc));
+                progress.FileScanned(f.Length);
+                continue;
+            }
 
             var dir = (DirectoryInfo)info;
             result.Directories.Add(dir.FullName);

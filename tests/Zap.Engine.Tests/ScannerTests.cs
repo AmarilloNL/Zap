@@ -45,6 +45,20 @@ public class ScannerTests
     }
 
     [Fact]
+    public void Reports_live_found_counts()
+    {
+        using var t = new TempDir();
+        t.File(@"a\one.txt", "12345");
+        t.File(@"b\two.txt", "123");
+        var p = new JobProgress();
+
+        Scanner.Scan([Path.Combine(t.Path, "a"), Path.Combine(t.Path, "b")], p, default);
+
+        Assert.Equal(2, p.ScannedFiles);
+        Assert.Equal(8, p.ScannedBytes);
+    }
+
+    [Fact]
     public void Missing_item_is_an_error()
     {
         using var t = new TempDir();

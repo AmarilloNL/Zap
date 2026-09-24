@@ -33,6 +33,7 @@ public partial class MainWindow : Window
     readonly Effect _ringGlow;
     CancellationTokenSource? _cts;
     bool _spinning;
+    string _jobEyebrow = "";
 
     public MainWindow(IEnumerable<string> startupPaths)
     {
@@ -272,6 +273,7 @@ public partial class MainWindow : Window
 
     void ResetJobView(string eyebrow, string headline, bool cancellable)
     {
+        _jobEyebrow = eyebrow;
         JobEyebrow.Content = eyebrow;
         JobHeadline.Text = headline;
         CurrentText.Text = "";
@@ -303,10 +305,17 @@ public partial class MainWindow : Window
             CurrentText.Text = p.CurrentItem ?? "";
             TimeCell.Header = "ELAPSED";
             TimeText.Text = Format.Time(elapsed);
+            if (cancellable) // counting files before the real work starts
+            {
+                JobEyebrow.Content = RingSub.Text = "SCANNING";
+                FilesText.Text = $"{Format.Count(p.ScannedFiles)} found";
+                BytesText.Text = $"{Format.Bytes(p.ScannedBytes)} found";
+            }
             return;
         }
 
         SetRingSpinning(false);
+        JobEyebrow.Content = RingSub.Text = _jobEyebrow;
         TimeCell.Header = "TIME LEFT";
         // Big files are bound by bytes, piles of small files by file count: weigh both.
         double byBytes = p.TotalBytes > 0 ? (double)p.BytesDone / p.TotalBytes : 1;
