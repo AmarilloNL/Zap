@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/Zap.App/Zap.App.csproj" />
     <Project Path="src/Zap.Engine/Zap.Engine.csproj" />
   </Folder>
   <Folder Name="/tests/">
