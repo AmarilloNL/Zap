@@ -24,12 +24,13 @@ public sealed record PathItem(string Path)
 public partial class MainWindow : Window
 {
     static readonly (Color A, Color B) CopyAccent = (Rgb(0x22D3EE), Rgb(0x8B5CF6));
+    static readonly (Color A, Color B) MoveAccent = (Rgb(0xFBBF24), Rgb(0xF97316));
     static readonly (Color A, Color B) DeleteAccent = (Rgb(0xF472B6), Rgb(0xEF4444));
     static readonly Color Emerald = Rgb(0x34D399), Amber = Rgb(0xFBBF24), Neutral = Rgb(0xAEB9CA);
 
     enum Outcome { Success, Cancelled, Failed }
 
-    readonly ObservableCollection<PathItem> _copyItems = [], _deleteItems = [];
+    readonly ObservableCollection<PathItem> _copyItems = [], _moveItems = [], _deleteItems = [];
     readonly Effect _ringGlow;
     CancellationTokenSource? _cts;
     bool _spinning;
@@ -40,12 +41,18 @@ public partial class MainWindow : Window
         InitializeComponent();
         _ringGlow = Ring.Effect;
         _copyItems.CollectionChanged += (_, _) => UpdateItemsState();
+        _moveItems.CollectionChanged += (_, _) => UpdateItemsState();
         _deleteItems.CollectionChanged += (_, _) => UpdateItemsState();
-        // "Zap.exe <paths>" pre-fills the copy list, "Zap.exe --delete <paths>" the delete list.
+        // "Zap.exe <paths>" pre-fills the copy list; "--move <paths>" / "--delete <paths>" the move or delete list.
         var args = startupPaths.ToList();
-        bool deleteArgs = args.FirstOrDefault() == "--delete";
-        foreach (var p in args.Skip(deleteArgs ? 1 : 0)) AddPath(deleteArgs ? _deleteItems : _copyItems, p);
-        (deleteArgs ? DeleteMode : CopyMode).IsChecked = true; // triggers ApplyMode
+        var (list, mode) = args.FirstOrDefault() switch
+        {
+            "--move" => (_moveItems, MoveMode),
+            "--delete" => (_deleteItems, DeleteMode),
+            _ => (_copyItems, CopyMode),
+        };
+        foreach (var p in args.Skip(list == _copyItems ? 0 : 1)) AddPath(list, p);
+        mode.IsChecked = true; // triggers ApplyMode
 
         SourceInitialized += (_, _) => UseWin11Frame();
         StateChanged += (_, _) =>
@@ -57,7 +64,8 @@ public partial class MainWindow : Window
     }
 
     bool DeleteModeOn => DeleteMode.IsChecked == true;
-    ObservableCollection<PathItem> Items => DeleteModeOn ? _deleteItems : _copyItems;
+    bool MoveModeOn => MoveMode.IsChecked == true;
+    ObservableCollection<PathItem> Items => DeleteModeOn ? _deleteItems : MoveModeOn ? _moveItems : _copyItems;
 
     // ---------- mode & accent ----------
 
@@ -65,16 +73,18 @@ public partial class MainWindow : Window
 
     void ApplyMode()
     {
-        bool del = DeleteModeOn;
-        SetAccent(del ? DeleteAccent : CopyAccent);
-        TitleText.Text = del ? "Delete files" : "Copy files";
+        bool del = DeleteModeOn, move = MoveModeOn;
+        SetAccent(del ? DeleteAccent : move ? MoveAccent : CopyAccent);
+        TitleText.Text = del ? "Delete files" : move ? "Move files" : "Copy files";
         SubtitleText.Foreground = (Brush)FindResource("MutedBrush");
-        SubtitleText.Text = del
-            ? "Parallel deleting, way faster than Explorer. You confirm before anything goes."
+        SubtitleText.Text = del ? "Parallel deleting, way faster than Explorer. You confirm before anything goes."
+            : move ? "Instant on the same drive. Across drives it copies, then removes the originals."
             : "Parallel copying with live progress. Drop files or folders anywhere in the window.";
-        EmptyHint.Text = del ? "or pick what you want gone" : "or pick what you want to copy";
+        EmptyHint.Text = del ? "or pick what you want gone" : move ? "or pick what you want to move" : "or pick what you want to copy";
         CopySide.Visibility = del ? Visibility.Collapsed : Visibility.Visible;
         DeleteSide.Visibility = del ? Visibility.Visible : Visibility.Collapsed;
+        StartText.Text = move ? "Start move" : "Start copy";
+        FilesCell.Header = move ? "ITEMS" : "FILES";
         ItemsView.ItemsSource = Items;
         UpdateItemsState();
     }
@@ -179,21 +189,36 @@ public partial class MainWindow : Window
 
     // ---------- copy ----------
 
+    // Shared by Copy and Move: both take sources, a destination and an overwrite mode.
     async void StartCopy_Click(object sender, RoutedEventArgs e)
     {
-        var sources = _copyItems.Select(i => i.Path).ToList();
+        bool move = MoveModeOn;
+        var list = move ? _moveItems : _copyItems;
+        var sources = list.Select(i => i.Path).ToList();
         var dest = DestBox.Text.Trim();
-        if (sources.Count == 0) { ShowHint("Add something to copy first."); return; }
+        if (sources.Count == 0) { ShowHint(move ? "Add something to move first." : "Add something to copy first."); return; }
         if (dest == "") { ShowHint("Pick a destination folder first."); return; }
         var mode = OverSkip.IsChecked == true ? OverwriteMode.SkipIdentical
                  : OverAlways.IsChecked == true ? OverwriteMode.Always : OverwriteMode.Never;
+        var destName = Path.GetFileName(PathUtil.Normalize(dest)) is { Length: > 0 } name ? name : dest;
 
         var p = new JobProgress();
-        var elapsed = await RunJob(p, "COPYING", $"Copying to {(Path.GetFileName(PathUtil.Normalize(dest)) is { Length: > 0 } name ? name : dest)}", ct => Copier.Run(sources, dest, mode, p, ct));
-        if (elapsed is { } t)
-            ShowDone(p, Outcome.Success, "COPY COMPLETE",
-                $"Copied {Format.Count(p.FilesDone - p.FilesSkipped - p.FilesFailed)} files " +
-                $"({Format.Bytes(p.BytesDone - p.BytesSkipped)}) in {Format.Time(t)}", t);
+        if (!move)
+        {
+            var elapsed = await RunJob(p, "COPYING", $"Copying to {destName}", ct => Copier.Run(sources, dest, mode, p, ct));
+            if (elapsed is { } t)
+                ShowDone(p, Outcome.Success, "COPY COMPLETE",
+                    $"Copied {Format.Count(p.FilesDone - p.FilesSkipped - p.FilesFailed)} files " +
+                    $"({Format.Bytes(p.BytesDone - p.BytesSkipped)}) in {Format.Time(t)}", t);
+        }
+        else
+        {
+            var elapsed = await RunJob(p, "MOVING", $"Moving to {destName}", ct => Mover.Run(sources, dest, mode, p, ct));
+            foreach (var gone in _moveItems.Where(i => !Path.Exists(i.Path)).ToList()) _moveItems.Remove(gone);
+            if (elapsed is { } t)
+                ShowDone(p, Outcome.Success, "MOVE COMPLETE",
+                    $"Moved {Format.Count(p.FilesDone - p.FilesSkipped - p.FilesFailed)} items in {Format.Time(t)}", t);
+        }
     }
 
     // ---------- delete ----------
@@ -309,7 +334,7 @@ public partial class MainWindow : Window
             if (cancellable) // counting files before the real work starts
             {
                 JobEyebrow.Content = RingSub.Text = "SCANNING";
-                JobHeadline.Text = DeleteModeOn ? "Scanning files before deleting…" : "Scanning files before copying…";
+                JobHeadline.Text = DeleteModeOn ? "Scanning files before deleting…" : MoveModeOn ? "Scanning files before moving…" : "Scanning files before copying…";
                 FilesText.Text = $"{Format.Count(p.ScannedFiles)} found";
                 BytesText.Text = $"{Format.Bytes(p.ScannedBytes)} found";
             }
@@ -330,9 +355,10 @@ public partial class MainWindow : Window
 
         double rate = speed.Update(p.BytesDone - p.BytesSkipped, elapsed);
         double fileRate = fileSpeed.Update(p.FilesDone, elapsed);
-        // Deleting is bound by file count, so GB/s would be meaningless there.
-        Graph.Add(DeleteModeOn ? fileRate : rate);
-        SpeedText.Text = DeleteModeOn ? $"{Format.Count((long)fileRate)} files/s" : $"{Format.Bytes(rate)}/s";
+        // Deleting and same-drive moves are bound by file count, so GB/s would be meaningless there.
+        Graph.Add(DeleteModeOn || MoveModeOn ? fileRate : rate);
+        SpeedText.Text = DeleteModeOn ? $"{Format.Count((long)fileRate)} files/s"
+            : MoveModeOn ? $"{Format.Count((long)fileRate)} items/s" : $"{Format.Bytes(rate)}/s";
         double secondsLeft = Math.Max(rate > 0 ? (p.TotalBytes - p.BytesDone) / rate : 0,
                                       fileRate > 0 ? (p.TotalFiles - p.FilesDone) / fileRate : 0);
         TimeText.Text = rate > 0 || fileRate > 0 ? Format.Time(TimeSpan.FromSeconds(secondsLeft)) : "—";
@@ -366,11 +392,11 @@ public partial class MainWindow : Window
         JobEyebrow.Content = eyebrow;
         JobHeadline.Text = headline;
         var extras = new List<string>();
-        if (p.FilesSkipped > 0) extras.Add($"{Format.Count(p.FilesSkipped)} skipped (already identical)");
+        if (p.FilesSkipped > 0) extras.Add($"{Format.Count(p.FilesSkipped)} skipped (already there)");
         if (errors) extras.Add($"{Format.Count(p.Errors.Count)} errors");
         CurrentText.Text = string.Join(" · ", extras);
-        if (elapsed.TotalSeconds > 0 && DeleteModeOn && p.FilesDone > 0)
-            SpeedText.Text = $"{Format.Count((long)(p.FilesDone / elapsed.TotalSeconds))} files/s avg";
+        if (elapsed.TotalSeconds > 0 && (DeleteModeOn || MoveModeOn) && p.FilesDone > 0)
+            SpeedText.Text = $"{Format.Count((long)(p.FilesDone / elapsed.TotalSeconds))} {(MoveModeOn ? "items" : "files")}/s avg";
         else if (elapsed.TotalSeconds > 0 && p.BytesDone > p.BytesSkipped)
             SpeedText.Text = $"{Format.Bytes((p.BytesDone - p.BytesSkipped) / elapsed.TotalSeconds)}/s avg";
         TimeCell.Header = "TOOK";
