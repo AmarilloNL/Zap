@@ -12,7 +12,8 @@ public static class Deleter
         progress.SetTotals(scan.Files.Count, scan.TotalBytes);
         ct.ThrowIfCancellationRequested();
 
-        Parallel.ForEach(scan.Files, new ParallelOptions { MaxDegreeOfParallelism = Parallelism, CancellationToken = ct }, file =>
+        progress.Parallelism = scan.Roots.Any(DriveKind.IsHardDisk) ? 1 : Parallelism;
+        Parallel.ForEach(scan.Files, new ParallelOptions { MaxDegreeOfParallelism = progress.Parallelism, CancellationToken = ct }, file =>
         {
             progress.CurrentItem = file.Path;
             try

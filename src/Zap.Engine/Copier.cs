@@ -38,7 +38,9 @@ public static class Copier
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { progress.AddError(dir, ex.Message); }
         }
 
-        Parallel.ForEach(jobs, new ParallelOptions { MaxDegreeOfParallelism = Parallelism, CancellationToken = ct },
+        bool hardDisk = sources.Any(DriveKind.IsHardDisk) || DriveKind.IsHardDisk(destination);
+        progress.Parallelism = hardDisk ? 1 : Parallelism;
+        Parallel.ForEach(jobs, new ParallelOptions { MaxDegreeOfParallelism = progress.Parallelism, CancellationToken = ct },
             job => CopyOne(job.File, job.Target, mode, progress, ct));
     }
 

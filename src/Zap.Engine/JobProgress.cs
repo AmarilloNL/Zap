@@ -21,6 +21,8 @@ public sealed class JobProgress
     public long ScannedFiles => Interlocked.Read(ref _scannedFiles);
     public long ScannedBytes => Interlocked.Read(ref _scannedBytes);
     public volatile string? CurrentItem;
+    /// <summary>How many files are processed at once (1 when a hard disk is involved).</summary>
+    public volatile int Parallelism;
     public IReadOnlyCollection<JobError> Errors => _errors;
 
     internal void SetTotals(long files, long bytes)
