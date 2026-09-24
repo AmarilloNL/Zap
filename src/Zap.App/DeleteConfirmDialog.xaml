@@ -1,17 +1,62 @@
 <Window x:Class="Zap.App.DeleteConfirmDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Confirm delete" SizeToContent="Height" Width="560"
-        WindowStartupLocation="CenterOwner" ResizeMode="NoResize" ShowInTaskbar="False">
-    <StackPanel Margin="24">
-        <TextBlock x:Name="SummaryText" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap" />
-        <TextBlock Margin="0,12,0,0" TextWrapping="Wrap"
-                   Text="Permanent delete is fast but cannot be undone: files do not go to the Recycle Bin." />
-        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,24,0,0">
-            <Button Content="Cancel" IsCancel="True" Padding="16,6" Margin="0,0,8,0" />
-            <Button Content="Move to Recycle Bin (slower)" Padding="16,6" Margin="0,0,8,0" Click="Recycle_Click" />
-            <Button Content="Delete permanently (fast)" IsDefault="True" Padding="16,6"
-                    Background="#C42B1C" Foreground="White" Click="Permanent_Click" />
+        Title="Confirm delete" SizeToContent="WidthAndHeight" ResizeMode="NoResize" ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner" WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        FontFamily="{StaticResource BodyFont}" FontSize="14" Foreground="{StaticResource InkBrush}"
+        MouseLeftButtonDown="Window_MouseLeftButtonDown">
+    <Window.Resources>
+        <Color x:Key="Accent1">#EF4444</Color>
+        <SolidColorBrush x:Key="AccentBrush" Color="#F472B6" />
+        <LinearGradientBrush x:Key="AccentGradient" StartPoint="0,0" EndPoint="1,1">
+            <GradientStop Color="#F472B6" Offset="0" />
+            <GradientStop Color="#EF4444" Offset="1" />
+        </LinearGradientBrush>
+    </Window.Resources>
+
+    <Border Margin="40" CornerRadius="24" BorderThickness="1" BorderBrush="#66F472B6">
+        <Border.Background>
+            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                <GradientStop Color="#F2140B1E" Offset="0" />
+                <GradientStop Color="#F2070B18" Offset="1" />
+            </LinearGradientBrush>
+        </Border.Background>
+        <Border.Effect>
+            <DropShadowEffect Color="#EF4444" BlurRadius="50" ShadowDepth="0" Opacity="0.45" />
+        </Border.Effect>
+        <StackPanel Margin="30,28" Width="540">
+            <DockPanel>
+                <Grid DockPanel.Dock="Left" Width="54" Height="54" Margin="0,0,18,0" VerticalAlignment="Top">
+                    <Border CornerRadius="17" Background="{StaticResource AccentGradient}" Opacity="0.2" />
+                    <Border CornerRadius="17" BorderBrush="#F472B6" BorderThickness="1" Opacity="0.6" />
+                    <TextBlock Style="{StaticResource Icon}" Text="&#xE74D;" FontSize="22" Foreground="#F472B6" HorizontalAlignment="Center" />
+                </Grid>
+                <StackPanel>
+                    <ContentControl Style="{StaticResource Eyebrow}" Content="CONFIRM DELETE" />
+                    <TextBlock x:Name="SummaryText" Style="{StaticResource DisplayText}" FontSize="24" TextWrapping="Wrap" Margin="0,6,0,0" />
+                    <TextBlock x:Name="DetailText" Foreground="{StaticResource MutedBrush}" FontSize="12.5" Margin="0,4,0,0"
+                               TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+            </DockPanel>
+
+            <Border CornerRadius="14" Background="#14FBBF24" BorderBrush="#40FBBF24" BorderThickness="1" Padding="14,11" Margin="0,22,0,0">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Left" Style="{StaticResource Icon}" Text="&#xE7BA;" Foreground="#FBBF24" Margin="0,0,12,0" />
+                    <TextBlock TextWrapping="Wrap" FontSize="13" Foreground="#FDE68A"
+                               Text="Permanent delete is fast but can't be undone: files skip the Recycle Bin." />
+                </DockPanel>
+            </Border>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,24,0,0">
+                <Button Content="Cancel" IsCancel="True" Style="{StaticResource GhostButton}" Padding="18,11" Margin="0,0,10,0" />
+                <Button Content="Recycle Bin (slower)" Style="{StaticResource GhostButton}" Padding="18,11" Margin="0,0,10,0" Click="Recycle_Click" />
+                <Button IsDefault="True" Style="{StaticResource PrimaryButton}" Click="Permanent_Click">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Style="{StaticResource Icon}" Text="&#xE945;" Margin="0,0,8,0" />
+                        <TextBlock Text="Delete permanently" />
+                    </StackPanel>
+                </Button>
+            </StackPanel>
         </StackPanel>
-    </StackPanel>
+    </Border>
 </Window>

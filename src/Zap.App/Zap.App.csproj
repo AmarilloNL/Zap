@@ -7,8 +7,6 @@
     <UseWPF>true</UseWPF>
     <AssemblyName>Zap</AssemblyName>
     <RootNamespace>Zap.App</RootNamespace>
-    <!-- ThemeMode (Fluent, follows Windows light/dark) is marked experimental -->
-    <NoWarn>$(NoWarn);WPF0001</NoWarn>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>false</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>
