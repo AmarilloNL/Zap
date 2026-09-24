@@ -95,6 +95,12 @@
                                 <TextBlock Text="Copy" />
                             </StackPanel>
                         </RadioButton>
+                        <RadioButton x:Name="MoveMode" GroupName="Mode" Style="{StaticResource SegmentRadio}" Checked="Mode_Checked">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource Icon}" Text="&#xE8C6;" Margin="0,0,8,0" />
+                                <TextBlock Text="Move" />
+                            </StackPanel>
+                        </RadioButton>
                         <RadioButton x:Name="DeleteMode" GroupName="Mode" Style="{StaticResource SegmentRadio}" Checked="Mode_Checked">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Style="{StaticResource Icon}" Text="&#xE74D;" Margin="0,0,8,0" />
@@ -210,7 +216,7 @@
                             <Button x:Name="StartCopyButton" DockPanel.Dock="Bottom" Style="{StaticResource PrimaryButton}" Click="StartCopy_Click">
                                 <StackPanel Orientation="Horizontal">
                                     <TextBlock Style="{StaticResource Icon}" Text="&#xE945;" Margin="0,0,10,0" />
-                                    <TextBlock Text="Start copy" />
+                                    <TextBlock x:Name="StartText" Text="Start copy" />
                                 </StackPanel>
                             </Button>
                             <StackPanel>
@@ -332,7 +338,7 @@
                                     <HeaderedContentControl x:Name="TimeCell" Style="{StaticResource MetricCell}" Header="TIME LEFT" Padding="0,0,10,10">
                                         <TextBlock x:Name="TimeText" />
                                     </HeaderedContentControl>
-                                    <HeaderedContentControl Style="{StaticResource MetricCell}" Header="FILES" Padding="0,0,10,10">
+                                    <HeaderedContentControl x:Name="FilesCell" Style="{StaticResource MetricCell}" Header="FILES" Padding="0,0,10,10">
                                         <TextBlock x:Name="FilesText" />
                                     </HeaderedContentControl>
                                     <HeaderedContentControl Style="{StaticResource MetricCell}" Header="DATA" Padding="0,0,10,10">

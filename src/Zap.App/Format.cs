@@ -12,7 +12,8 @@ static class Format
 
     /// <summary>Plain words: "8 sec", "3 min 45 sec", "22 hr 6 min".</summary>
     public static string Time(TimeSpan t) =>
-        t.TotalSeconds < 60 ? $"{Math.Max(0, (int)t.TotalSeconds)} sec"
+        t.TotalSeconds < 1 ? "under 1 sec"
+        : t.TotalSeconds < 60 ? $"{(int)t.TotalSeconds} sec"
         : t.TotalHours < 1 ? $"{t.Minutes} min {t.Seconds} sec"
         : $"{(int)t.TotalHours} hr {t.Minutes} min";
 
