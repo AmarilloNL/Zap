@@ -270,9 +270,9 @@ public partial class MainWindow : Window
         ShowView(JobView);
         ModeHost.IsEnabled = false;
         var clock = Stopwatch.StartNew();
-        SpeedMeter speed = new(), fileSpeed = new();
+        SpeedMeter speed = new(), processed = new(), fileSpeed = new();
         var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
-        timer.Tick += (_, _) => UpdateJob(p, clock.Elapsed, speed, fileSpeed, cancellable);
+        timer.Tick += (_, _) => UpdateJob(p, clock.Elapsed, speed, processed, fileSpeed, cancellable);
         timer.Start();
         try
         {
@@ -321,7 +321,7 @@ public partial class MainWindow : Window
         DoneButton.Visibility = Visibility.Collapsed;
     }
 
-    void UpdateJob(JobProgress p, TimeSpan elapsed, SpeedMeter speed, SpeedMeter fileSpeed, bool cancellable)
+    void UpdateJob(JobProgress p, TimeSpan elapsed, SpeedMeter speed, SpeedMeter processed, SpeedMeter fileSpeed, bool cancellable)
     {
         bool scanning = p.TotalFiles == 0 && p.FilesDone == 0;
         if (!cancellable || scanning) // no measurable progress yet
@@ -349,19 +349,22 @@ public partial class MainWindow : Window
         // Big files are bound by bytes, piles of small files by file count: weigh both.
         double byBytes = p.TotalBytes > 0 ? (double)p.BytesDone / p.TotalBytes : 1;
         double byFiles = (double)p.FilesDone / Math.Max(1, p.TotalFiles);
-        double fraction = (byBytes + byFiles) / 2;
+        bool countBound = DeleteModeOn || MoveModeOn; // file count, not data volume, sets the pace
+        double fraction = MoveModeOn ? byFiles : (byBytes + byFiles) / 2; // whole-folder renames carry no byte count
         Ring.BeginAnimation(ProgressRing.ProgressProperty, new DoubleAnimation(fraction, TimeSpan.FromMilliseconds(300)));
         RingText.Text = $"{Math.Floor(fraction * 100):0}%";
 
-        double rate = speed.Update(p.BytesDone - p.BytesSkipped, elapsed);
+        double rate = speed.Update(p.BytesDone - p.BytesSkipped, elapsed);      // data really transferred (shown)
+        double processedRate = processed.Update(p.BytesDone, elapsed);          // incl. skipped files (for time left)
         double fileRate = fileSpeed.Update(p.FilesDone, elapsed);
         // Deleting and same-drive moves are bound by file count, so GB/s would be meaningless there.
-        Graph.Add(DeleteModeOn || MoveModeOn ? fileRate : rate);
+        Graph.Add(countBound ? fileRate : rate);
         SpeedText.Text = DeleteModeOn ? $"{Format.Count((long)fileRate)} files/s"
             : MoveModeOn ? $"{Format.Count((long)fileRate)} items/s" : $"{Format.Bytes(rate)}/s";
-        double secondsLeft = Math.Max(rate > 0 ? (p.TotalBytes - p.BytesDone) / rate : 0,
-                                      fileRate > 0 ? (p.TotalFiles - p.FilesDone) / fileRate : 0);
-        TimeText.Text = rate > 0 || fileRate > 0 ? Format.Time(TimeSpan.FromSeconds(secondsLeft)) : "—";
+        double filesLeft = fileRate > 0 ? (p.TotalFiles - p.FilesDone) / fileRate : 0;
+        double bytesLeft = processedRate > 0 ? (p.TotalBytes - p.BytesDone) / processedRate : 0;
+        double secondsLeft = countBound ? filesLeft : Math.Max(filesLeft, bytesLeft);
+        TimeText.Text = fileRate > 0 || processedRate > 0 ? Format.Time(TimeSpan.FromSeconds(secondsLeft)) : "—";
         FilesText.Text = $"{Format.Count(p.FilesDone)} / {Format.Count(p.TotalFiles)}";
         BytesText.Text = $"{Format.Bytes(p.BytesDone)} / {Format.Bytes(p.TotalBytes)}";
         CurrentText.Text = p.CurrentItem ?? "";

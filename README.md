@@ -7,7 +7,9 @@ Fast copy and delete for Windows, with live progress.
 - **Delete**: add files/folders, Delete…, then choose permanent (fast) or Recycle Bin (slower).
   System folders and whole drives are refused.
 
-Requires the .NET 10 Desktop Runtime.
+**Download:** grab the latest `.exe` from [Releases](../../releases):
+- `Zap-standalone.exe`: runs on any Windows 10/11 PC, nothing to install (~75 MB).
+- `Zap.exe`: tiny (~260 KB), needs the [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0).
 
 Build: `dotnet publish src/Zap.App -c Release -o publish` → `publish\Zap.exe`
 Tests: `dotnet test`
