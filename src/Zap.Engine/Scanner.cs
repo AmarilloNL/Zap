@@ -15,7 +15,7 @@ public sealed class ScanResult
 
 public static class Scanner
 {
-    static readonly EnumerationOptions NoSkipping = new() { AttributesToSkip = 0 };
+    internal static readonly EnumerationOptions NoSkipping = new() { AttributesToSkip = 0 };
 
     public static ScanResult Scan(IEnumerable<string> items, JobProgress progress, CancellationToken ct)
     {
@@ -62,6 +62,6 @@ public static class Scanner
     }
 
     // Cloud placeholders (OneDrive) are reparse points too, but have no LinkTarget: treat them as normal.
-    static bool IsLink(FileSystemInfo info) =>
+    internal static bool IsLink(FileSystemInfo info) =>
         info.Attributes.HasFlag(FileAttributes.ReparsePoint) && info.LinkTarget != null;
 }

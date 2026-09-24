@@ -70,7 +70,7 @@ public static class Deleter
             if (ProtectedPaths.Check(root) is { } reason) throw new InvalidOperationException(reason);
     }
 
-    static void ClearReadOnlyAndRetry(string path, Action<string> delete)
+    internal static void ClearReadOnlyAndRetry(string path, Action<string> delete)
     {
         try { delete(path); }
         catch (UnauthorizedAccessException) when (File.GetAttributes(path).HasFlag(FileAttributes.ReadOnly))
